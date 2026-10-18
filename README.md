@@ -4,7 +4,11 @@ One shared reusable workflow lives in `chrismuha/.github`. Each active, non-fork
 repository has a small `Commit email` trigger. It watches branch and tag pushes,
 with no branch filter, and has a manual test button. It never checks out or
 executes repository contents. Messages contain commit authors, messages, links,
-ref, actor, and the comparison URL. Gmail uses verified TLS on port 465.
+ref, actor, the comparison URL, and Added/New, Modified, and Deleted file lists
+for each commit. Renames show both names under Modified. File metadata is fetched
+with the caller repository’s read-only token; no checkout is needed. API failures
+leave an explicit note and retain commit messages and links. GitHub caps commit
+file lists at 3,000 entries. Gmail uses verified TLS on port 465.
 
 ## Activation
 
