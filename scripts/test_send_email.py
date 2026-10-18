@@ -46,6 +46,17 @@ class EmailTests(unittest.TestCase):
         self.assertIn('page=2', request.call_args.args[0].full_url)
         self.assertEqual(request.call_args.args[0].get_header('Authorization'), 'Bearer test-token')
 
+    def test_installation_tokens_are_forwarded_without_length_or_format_assumptions(self):
+        tokens = ['ghs_' + 'a' * 36,
+                  'ghs_12345_' + 'a' * 170 + '.' + 'b' * 170 + '.' + 'c' * 168,
+                  'ghs_' + 'x' * 1020]
+        self.assertEqual(len(tokens[1]), 520)
+        for token in tokens:
+            with self.subTest(length=len(token)):
+                with patch('send_email.urlopen', return_value=io.StringIO('{"files": []}')) as request:
+                    load_commit_files('abcdef', dict(ENV, GH_TOKEN=token))
+                self.assertEqual(request.call_args.args[0].get_header('Authorization'), 'Bearer ' + token)
+
     def test_api_failure_keeps_commit_message_and_explains_missing_files(self):
         from urllib.error import URLError
         event = {'commits': [{'id': 'abc', 'message': 'Keep this message'}]}
