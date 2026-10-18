@@ -1,0 +1,57 @@
+"""Send a plain-text push summary without checking out or executing repository code."""
+import json
+import os
+import smtplib
+import ssl
+from email.message import EmailMessage
+from email.utils import getaddresses
+from pathlib import Path
+
+
+def build_message(event, env):
+    sender = env['MAIL_FROM']
+    recipients = [address for _, address in getaddresses([env['MAIL_TO']])]
+    if not recipients or any('\n' in x or '\r' in x for x in [sender, env['MAIL_TO']]):
+        raise ValueError('Invalid notification addresses')
+    repo = env['GITHUB_REPOSITORY']
+    ref = event.get('ref', env.get('GITHUB_REF', 'manual test'))
+    actor = event.get('sender', {}).get('login', env.get('GITHUB_ACTOR', 'unknown'))
+    commits = event.get('commits', [])
+    subject = f'[{repo}] {len(commits)} commit(s) pushed to {ref}'
+    if env.get('GITHUB_EVENT_NAME') == 'workflow_dispatch':
+        subject = f'[{repo}] Commit email test'
+    message = EmailMessage()
+    message['From'] = sender
+    message['To'] = ', '.join(recipients)
+    message['Subject'] = ' '.join(subject.splitlines())
+    lines = [f'Repository: {repo}', f'Ref: {ref}', f'Pushed by: {actor}', '']
+    for commit in commits[:100]:
+        author = commit.get('author', {}).get('name', 'unknown')
+        lines.extend([f"{commit.get('id', '')[:12]} - {author}",
+                      commit.get('message', ''), commit.get('url', ''), ''])
+    if len(commits) > 100:
+        lines.append('Showing the first 100 commits; see the comparison for the full push.')
+    if event.get('compare'):
+        lines.append('Compare: ' + event['compare'])
+    lines.append(f"Run: {env.get('GITHUB_SERVER_URL', 'https://github.com')}/{repo}/actions/runs/{env['GITHUB_RUN_ID']}")
+    message.set_content('\n'.join(lines))
+    return message
+
+
+def main():
+    env = os.environ
+    for name in ['MAIL_FROM', 'MAIL_TO', 'MAIL_PASSWORD']:
+        if not env.get(name):
+            raise RuntimeError(f'Missing required secret: {name}')
+    event = json.loads(Path(env['GITHUB_EVENT_PATH']).read_text())
+    message = build_message(event, env)
+    # Gmail SMTP requires an app password; normal account passwords are unsupported.
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30,
+                          context=ssl.create_default_context()) as smtp:
+        smtp.login(env['MAIL_FROM'], env['MAIL_PASSWORD'])
+        smtp.send_message(message)
+    print('Commit notification accepted by Gmail SMTP.')
+
+
+if __name__ == '__main__':
+    main()
