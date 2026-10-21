@@ -109,10 +109,33 @@ class EmailTests(unittest.TestCase):
         second.send_message.assert_called_once()
 
     def test_persistent_disconnect_is_bounded(self):
-        with patch('send_email.smtplib.SMTP_SSL', side_effect=smtplib.SMTPServerDisconnected('closed')) as connect, patch('send_email.time.sleep'):
+        with patch('send_email.smtplib.SMTP_SSL', side_effect=smtplib.SMTPServerDisconnected('closed')) as connect, patch('send_email.smtplib.SMTP', side_effect=smtplib.SMTPServerDisconnected('closed')) as starttls_connect, patch('send_email.time.sleep'):
             with self.assertRaisesRegex(RuntimeError, 'No message was submitted'):
                 send_message(build_message({}, ENV), ENV)
-        self.assertEqual(connect.call_count, 3)
+        self.assertEqual(connect.call_count, 2)
+        starttls_connect.assert_called_once()
+
+    def test_final_attempt_upgrades_to_tls_before_authentication(self):
+        smtp = MagicMock()
+        calls = []
+        smtp.starttls.side_effect = lambda **kwargs: calls.append('tls')
+        smtp.login.side_effect = lambda *args, **kwargs: calls.append('login')
+        with patch('send_email.smtplib.SMTP_SSL', side_effect=smtplib.SMTPServerDisconnected('closed')), patch('send_email.smtplib.SMTP', return_value=smtp) as connect, patch('send_email.time.sleep'):
+            send_message(build_message({}, ENV), ENV)
+        connect.assert_called_once_with('smtp.gmail.com', 587, timeout=30)
+        self.assertEqual(calls, ['tls', 'login'])
+        smtp.send_message.assert_called_once()
+
+    def test_tls_failure_does_not_authenticate_or_send(self):
+        import ssl
+        smtp = MagicMock()
+        smtp.starttls.side_effect = ssl.SSLCertVerificationError('untrusted')
+        with patch('send_email.smtplib.SMTP_SSL', side_effect=smtplib.SMTPServerDisconnected('closed')), patch('send_email.smtplib.SMTP', return_value=smtp), patch('send_email.time.sleep'):
+            with self.assertRaises(ssl.SSLCertVerificationError):
+                send_message(build_message({}, ENV), ENV)
+        smtp.login.assert_not_called()
+        smtp.send_message.assert_not_called()
+        smtp.close.assert_called_once()
 
     def test_rejected_credentials_are_not_retried(self):
         smtp = MagicMock()

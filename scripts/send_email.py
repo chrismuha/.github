@@ -94,8 +94,14 @@ def send_message(message, env):
     for attempt in range(3):
         smtp = None
         try:
-            smtp = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30,
-                                    context=ssl.create_default_context())
+            if attempt < 2:
+                smtp = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30,
+                                        context=ssl.create_default_context())
+            else:
+                smtp = smtplib.SMTP('smtp.gmail.com', 587, timeout=30)
+                smtp.ehlo()
+                smtp.starttls(context=ssl.create_default_context())
+                smtp.ehlo()
             # Use challenge/response after a dropped initial-response login.
             smtp.login(env['MAIL_FROM'], env['MAIL_PASSWORD'],
                        initial_response_ok=(attempt == 0))
