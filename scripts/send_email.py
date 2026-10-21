@@ -3,6 +3,7 @@ import json
 import os
 import smtplib
 import ssl
+import time
 from urllib.request import Request, urlopen
 from urllib.parse import quote
 from urllib.error import HTTPError, URLError
@@ -88,6 +89,37 @@ def build_message(event, env):
     return message
 
 
+def send_message(message, env):
+    """Retry only connection/authentication disconnects, never message submission."""
+    for attempt in range(3):
+        smtp = None
+        try:
+            smtp = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30,
+                                    context=ssl.create_default_context())
+            # Use challenge/response after a dropped initial-response login.
+            smtp.login(env['MAIL_FROM'], env['MAIL_PASSWORD'],
+                       initial_response_ok=(attempt == 0))
+        except (smtplib.SMTPServerDisconnected, TimeoutError, ConnectionError):
+            if smtp is not None:
+                smtp.close()
+            if attempt == 2:
+                raise RuntimeError('Gmail disconnected before message submission after 3 attempts; '
+                                   'check Google account security and SMTP access. No message was submitted.') from None
+            print(f'Gmail disconnected before submission; reconnecting (attempt {attempt + 2}/3).')
+            time.sleep(15 * (attempt + 1))
+            continue
+        except BaseException:
+            if smtp is not None:
+                smtp.close()
+            raise
+        try:
+            # A disconnect here has uncertain delivery: retrying could duplicate mail.
+            smtp.send_message(message)
+        finally:
+            smtp.close()
+        return
+
+
 def main():
     env = os.environ
     for name in ['MAIL_FROM', 'MAIL_TO', 'MAIL_PASSWORD']:
@@ -97,11 +129,7 @@ def main():
     if env.get('GITHUB_EVENT_NAME') == 'push':
         add_file_details(event, env)
     message = build_message(event, env)
-    # Gmail SMTP requires an app password; normal account passwords are unsupported.
-    with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30,
-                          context=ssl.create_default_context()) as smtp:
-        smtp.login(env['MAIL_FROM'], env['MAIL_PASSWORD'])
-        smtp.send_message(message)
+    send_message(message, env)
     print('Commit notification accepted by Gmail SMTP.')
 
 

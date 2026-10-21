@@ -43,3 +43,5 @@ an accepted message automatically: that could send duplicate notifications.
 Run `python3 -m unittest discover -s . -p 'test_*.py'`.
 Tests mock SMTP and do not send email. A live delivery test is still required
 once credentials are configured.
+
+Transport disconnects before message submission are retried at most three times, with 15/30 second delays and challenge/response authentication on retries. Rejected credentials fail immediately. Message submission is never retried because delivery may already have occurred. Persistent login disconnects require checking Google account security/SMTP access; retries cannot repair revoked credentials. CQ and depend only manage their own YAML files and do not replace this reusable sender.
