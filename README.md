@@ -45,3 +45,13 @@ Tests mock SMTP and do not send email. A live delivery test is still required
 once credentials are configured.
 
 Transport disconnects before message submission are retried at most three times, with 15/30 second delays and challenge/response authentication on retries. The final attempt uses Gmail’s alternate port 587 with certificate-verified STARTTLS; authentication never occurs before TLS succeeds. Rejected credentials fail immediately. Message submission is never retried because delivery may already have occurred. Persistent login disconnects require checking Google account security/SMTP access; retries cannot repair revoked credentials. CQ and depend only manage their own YAML files and do not replace this reusable sender.
+
+## Email readability
+
+Notifications include an HTML version with 22px body text, a 34px main heading,
+28px commit headings, and 25px Added / New, Modified, and Deleted section headings.
+Filenames are bold, long paths wrap, and links describe their destination. Dark
+text on a white background keeps strong contrast. The layout uses one column and
+real headings and lists for screen readers, with inline styles for email clients.
+A plain-text alternative preserves the same details for clients without HTML.
+Commit messages, names, and paths are escaped before rendering as HTML.

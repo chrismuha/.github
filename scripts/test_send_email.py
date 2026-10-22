@@ -32,10 +32,39 @@ class EmailTests(unittest.TestCase):
                               'message': 'Fix $HOME `command`\n<script>text</script>'}],
                  'compare': 'https://github.com/example/repo/compare/a...b'}
         message = build_message(event, ENV)
-        self.assertIn('abcdef012345 - A', message.get_content())
-        self.assertIn('Fix $HOME `command`', message.get_content())
-        self.assertEqual(message.get_content_type(), 'text/plain')
-        self.assertIn('human', message.get_content())
+        self.assertIn('abcdef012345 - A', message.get_body(preferencelist=('plain',)).get_content())
+        self.assertIn('Fix $HOME `command`', message.get_body(preferencelist=('plain',)).get_content())
+        self.assertEqual(message.get_content_type(), 'multipart/alternative')
+        self.assertIn('human', message.get_body(preferencelist=('plain',)).get_content())
+
+    def test_accessible_html_escapes_commit_text_and_bolds_filenames(self):
+        event = {'ref': 'refs/heads/<main>', 'commits': [{
+            'id': 'abcdef012345', 'author': {'name': 'A & B'},
+            'message': 'Fix <script>alert(1)</script>\nSecond line',
+            'url': 'https://github.com/example/repo/commit/abcdef',
+            'file_details': [{'filename': 'src/<unsafe>&.py', 'status': 'modified'}],
+        }]}
+        message = build_message(event, ENV)
+        html = message.get_body(preferencelist=('html',)).get_content()
+        self.assertIn('font-size:22px', html)
+        self.assertIn('font-size:34px', html)
+        self.assertIn('<h2 ', html)
+        self.assertIn('Modified files</h3>', html)
+        self.assertIn('<strong>src/&lt;unsafe&gt;&amp;.py</strong>', html)
+        self.assertIn('A &amp; B', html)
+        self.assertNotIn('<script>', html)
+        self.assertIn('View this commit on GitHub', html)
+        self.assertIn('overflow-wrap:anywhere', html)
+        self.assertIn('Fix <script>', message.get_body(preferencelist=('plain',)).get_content())
+        self.assertEqual(len(list(message.iter_parts())), 2)
+
+    def test_unsafe_urls_are_not_clickable_in_html(self):
+        message = build_message({'commits': [{'url': 'javascript:alert(1)'}],
+                                 'compare': 'data:text/html,unsafe'}, ENV)
+        html = message.get_body(preferencelist=('html',)).get_content()
+        self.assertNotIn('javascript:', html)
+        self.assertNotIn('data:text/html', html)
+        self.assertIn('View this commit on GitHub', html)
 
     def test_file_groups_and_renames(self):
         event = {'commits': [{'message': 'Update app', 'file_details': [
@@ -44,7 +73,7 @@ class EmailTests(unittest.TestCase):
             {'filename': 'old.txt', 'status': 'removed'},
             {'filename': 'renamed.txt', 'previous_filename': 'before.txt', 'status': 'renamed'},
         ]}]}
-        body = build_message(event, ENV).get_content()
+        body = build_message(event, ENV).get_body(preferencelist=('plain',)).get_content()
         self.assertIn('Added / New files:\n  - new.txt', body)
         self.assertIn('Modified files:\n  - app.py', body)
         self.assertIn('Deleted files:\n  - old.txt', body)
@@ -76,7 +105,7 @@ class EmailTests(unittest.TestCase):
         event = {'commits': [{'id': 'abc', 'message': 'Keep this message'}]}
         with patch('send_email.load_commit_files', side_effect=URLError('unavailable')):
             add_file_details(event, ENV)
-        body = build_message(event, ENV).get_content()
+        body = build_message(event, ENV).get_body(preferencelist=('plain',)).get_content()
         self.assertIn('Keep this message', body)
         self.assertIn('File list unavailable', body)
 
